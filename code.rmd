@@ -1,0 +1,227 @@
+---
+title: "Machine_learnig_project"
+author: "Karen Velasquez"
+date: "30 de julio de 2018"
+output: html_document
+---
+
+## Overview
+
+Using devices such as Jawbone Up, Nike FuelBand, and Fitbit it is now possible to collect a large amount of data about personal activity relatively inexpensively. These type of devices are part of the quantified self movement – a group of enthusiasts who take measurements about themselves regularly to improve their health, to find patterns in their behavior, or because they are tech geeks. One thing that people regularly do is quantify how much of a particular activity they do, but they rarely quantify how well they do it. 
+
+## Data 
+
+The training data for this project are available here:
+
+<https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv>
+
+The test data are available here:
+
+<https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv>
+
+## Data process
+
+### Get the data set
+
+```{r , cache=TRUE}
+testing <- read.csv("C:/Users/kvelasqu/Downloads/PROJECTO/pml-testing.csv")
+training <- read.csv("C:/Users/kvelasqu/Downloads/PROJECTO/pml-training.csv")
+```
+
+### Exploration
+
+```{r , cache=TRUE}
+dim(training)
+```
+
+```{r , cache=TRUE}
+names(testing)
+```
+```{r , cache=TRUE}
+sum(as.null(testing))
+```
+```{r , cache=TRUE}
+sum(as.null(training))
+```
+#### Remove the 7 first columns because their content doesn´t have realtion with the model
+
+```{r , cache=TRUE}
+training_2 <- training[,-(1:7)]
+testing_2 <- testing[,-(1:7)]
+```
+
+#### Download the packages
+install.packages("kernlab")
+install.packages("caret")
+
+
+```{r , cache=FALSE}
+library(kernlab)
+library(caret)
+```
+
+#### Now create a Data partion
+```{r , cache=TRUE}
+inTrain  <- createDataPartition(training_2$classe, p=0.7, list=FALSE)
+Train <- training_2[inTrain, ]
+Test  <- training_2[-inTrain, ]
+dim(Train)
+dim(Test)
+```
+
+
+#### I remove the variables with variance is near to cero
+```{r , cache=TRUE}
+ZV <- nearZeroVar(Train)
+ZV2 <- nearZeroVar(Test)
+Train <- Train[, -ZV]
+Test  <- Test[, -ZV2]
+dim(Train)
+dim(Test)
+```
+
+#### I remove the variables when the data nulls are more than >0.95
+```{r , cache=TRUE}
+MoreNull    <- sapply(Train, function(x) mean(is.na(x))) > 0.95
+Train <- Train[, MoreNull==FALSE]
+
+MoreNullT    <- sapply(Test, function(x) mean(is.na(x))) > 0.95
+Test  <- Test[, MoreNullT==FALSE]
+dim(Train)
+dim(Test)
+```
+
+
+## Construct the models
+
+### The first model is the decision Tree because I consider that is a good model to start 
+
+####Decision Tree
+
+```{r , cache=TRUE}
+set.seed(5)
+Mfit <-train(classe~.,method="rpart",data=Train)  
+
+```
+### Install the package necesary to build the model
+```{r , cache=TRUE}
+
+library(rattle)  
+```
+
+### Then I see the model
+```{r , cache=TRUE}
+set.seed(5)
+fancyRpartPlot(Mfit$finalModel)  
+
+```
+
+### I apply the prediction 
+
+```{r , cache=TRUE}
+prediction <- predict(Mfit,newdata=Test)
+MatrixConf <- confusionMatrix(prediction,Test$classe)
+```
+
+### Confusion Matrix
+
+```{r , cache=TRUE}
+MatrixConf 
+```
+
+In this case the accurancy is very low (0.49) in this case I use the cross validation to do 
+
+
+#### Random Forest
+```{r , cache=TRUE}
+library(randomForest)
+set.seed(123)
+FitControl <- trainControl(method = "cv", number = 3, verboseIter=FALSE)
+FitRandom<- train( classe ~.,data=Train, method = "rf",
+                   trainControl = FitControl)
+
+```
+
+
+Then I apply the model i the test data
+```{r , cache=TRUE}
+PredictFitRf <- predict(FitRandom,newdata=Test)
+ConfPreRf <- confusionMatrix(PredictFitRf,Test$classe)
+
+```
+Graphic representation the matrix confusion
+
+```{r , cache=TRUE}
+plot(ConfPreRf$table,col=ConfPreRf$byClass,
+     main="Accurancy",
+     round(ConfPreRf$overall['Accuracy'], 4))
+
+
+```
+
+### Apply the cross validation through cv
+
+```{r , cache=TRUE}
+
+ModelN <- "ModelN.RData"
+if (!file.exists(ModelN)) {
+
+    # Parallel cores  
+    #require(parallel)
+    library(doParallel)
+    ncores <- makeCluster(detectCores() - 1)
+    registerDoParallel(cores=ncores)
+    getDoParWorkers()   
+    
+    # use Random Forest method with cv (cross validation), 6 folds
+    Model <- train(classe ~ .
+                , data = Train
+                , method = "rf"
+                , metric = "Accuracy" 
+                , preProcess=c("center", "scale") 
+                , trControl=trainControl(method = "cv"
+                                        , number = 6 #Train data and create partition
+                                        , p= 0.60
+                                        , allowParallel = TRUE 
+#                                      
+                                        )
+                )
+
+    save(Model, file = "ModelN.RData")
+
+    stopCluster(ncores)
+} else {
+
+    load(file = ModelN, verbose = TRUE)
+}
+
+```
+
+Then I see the model
+
+```{r , cache=TRUE}
+print(Model,digits= 6)
+```
+
+Apply the prediction
+
+```{r , cache=TRUE}
+predTest <- predict(Model, newdata=Test)
+
+confusionMatrix(predTest, Test$classe)
+```
+
+Accuracy is very high, the interval is between 0.996 and 0.9987.
+
+
+###Results
+```{r , cache=TRUE}
+Model$finalModel
+Model$results
+```
+
+## Validation
+```{r , cache=TRUE}
+print(predict(Model,newdata=testing))
+```
+In this case I select the random Forest because is has high acurrancy, and the performance in the cross validation is very high
